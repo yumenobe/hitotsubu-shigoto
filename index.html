@@ -102,6 +102,21 @@
   .check{width:26px; height:26px; border-radius:50%; background:var(--card-done); color:#fff; display:inline-flex; align-items:center; justify-content:center; font-size:15px; flex:0 0 auto}
   .list-item.is-now{border-color:var(--accent); box-shadow:0 0 0 1.5px var(--accent) inset}
   .list-item.is-done{opacity:.72}
+  /* ===== ドラッグ＆ドロップ並び替え ===== */
+  .grip{
+    flex:0 0 auto; cursor:grab; color:var(--ink-soft);
+    font-size:17px; line-height:1; letter-spacing:-2px; padding:6px 4px 6px 0;
+    user-select:none; -webkit-user-select:none;
+  }
+  .list-item[draggable="true"]{cursor:grab}
+  .list-item[draggable="true"]:active{cursor:grabbing}
+  .list-item.dragging{opacity:.4; border-style:dashed}
+  .list-item.drop-before{box-shadow:0 -4px 0 0 var(--accent)}
+  .list-item.drop-after{box-shadow:0 4px 0 0 var(--accent)}
+  .list-item.is-now.drop-before{box-shadow:0 0 0 1.5px var(--accent) inset, 0 -4px 0 0 var(--accent)}
+  .list-item.is-now.drop-after{box-shadow:0 0 0 1.5px var(--accent) inset, 0 4px 0 0 var(--accent)}
+  .reorder-row{cursor:grab}
+  .reorder-row:active{cursor:grabbing}
   .primary-btn{
     min-height:50px; border:0; border-radius:999px; background:var(--card); color:#fff;
     font-size:16px; font-weight:800; padding:12px 22px; width:100%;
@@ -243,7 +258,7 @@
       <h2 class="view-title">しごとの一覧</h2>
       <button class="ghost-btn" id="listCloseBtn" type="button">✕ 閉じる</button>
     </div>
-    <p class="view-sub">タスクをタップすると、そのタスクから紙芝居を再開できます。</p>
+    <p class="view-sub">タスクをタップすると、そのタスクから紙芝居を再開できます。行をドラッグ＆ドロップすると順番を変えられます（その場で保存されます）。</p>
     <ul class="list" id="overviewList"></ul>
     <div class="tool-row">
       <button class="tool-btn" id="restartBtn" type="button">進捗を最初に戻す</button>
@@ -265,6 +280,12 @@
       <button class="add-btn" id="bulkAddBtn" type="button">この行を全部追加する</button>
     </div>
     <p class="add-note">空行は無視して、書いた順に末尾へ追加します。追加すると下の「全部のタスク」にも反映されます。</p>
+
+    <hr class="divider" />
+
+    <span class="field-label" id="reorderLabel">ドラッグで並び替え</span>
+    <ul class="list" id="reorderList" aria-labelledby="reorderLabel"></ul>
+    <p class="add-note">行をつまんでドラッグ＆ドロップすると順番を変えられます。変更はその場で保存され、下の「全部のタスク」にも反映されます。</p>
 
     <hr class="divider" />
 
@@ -395,6 +416,69 @@
   }
   function goBack(){ if(state.index > 0){ state.index -= 1; save(); renderDeck(); } }
 
+  /* ===== ドラッグ＆ドロップ並び替え ===== */
+  var dragFrom = null, dropTarget = null, lastDragEnd = 0;
+  function clearDropMarks(container){
+    if(!container) return;
+    var marked = container.querySelectorAll(".drop-before, .drop-after");
+    for(var i=0;i<marked.length;i++){ marked[i].classList.remove("drop-before","drop-after"); }
+  }
+  // 進捗（いまのタスク）が並び替え後も同じタスクを指すよう index を追従させる
+  function reorderTasks(from, to){
+    if(from === to || from < 0 || to < 0) return;
+    if(from >= state.tasks.length || to >= state.tasks.length) return;
+    var idx = state.index, len = state.tasks.length;
+    var item = state.tasks.splice(from, 1)[0];
+    state.tasks.splice(to, 0, item);
+    if(idx < len){
+      if(idx === from) idx = to;
+      else if(from < idx && to >= idx) idx -= 1;
+      else if(from > idx && to <= idx) idx += 1;
+      state.index = idx;
+    }
+    clamp(); save();
+  }
+  function attachDrag(el, getIndex, container, commit){
+    el.setAttribute("draggable", "true");
+    el.addEventListener("dragstart", function(e){
+      dragFrom = getIndex(); dropTarget = null;
+      el.classList.add("dragging");
+      if(e.dataTransfer){
+        e.dataTransfer.effectAllowed = "move";
+        try{ e.dataTransfer.setData("text/plain", ""); }catch(err){}
+      }
+    });
+    el.addEventListener("dragend", function(){
+      el.classList.remove("dragging");
+      clearDropMarks(container);
+      dragFrom = null; dropTarget = null;
+      lastDragEnd = Date.now();
+    });
+    el.addEventListener("dragover", function(e){
+      if(dragFrom === null) return;
+      e.preventDefault();
+      if(e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      var rect = el.getBoundingClientRect();
+      var after = (e.clientY - rect.top) > rect.height / 2;
+      clearDropMarks(container);
+      el.classList.add(after ? "drop-after" : "drop-before");
+      dropTarget = { index: getIndex(), after: after };
+    });
+    el.addEventListener("dragleave", function(){
+      el.classList.remove("drop-before", "drop-after");
+    });
+    el.addEventListener("drop", function(e){
+      e.preventDefault();
+      if(dragFrom === null || !dropTarget) return;
+      var from = dragFrom;
+      var to = dropTarget.index + (dropTarget.after ? 1 : 0);
+      if(from < to) to -= 1;
+      clearDropMarks(container);
+      dragFrom = null; dropTarget = null;
+      if(to !== from) commit(from, to);
+    });
+  }
+
   /* ===== 一覧 ===== */
   function renderList(){
     var ul = $("overviewList"); ul.innerHTML = "";
@@ -407,11 +491,42 @@
       var li = document.createElement("li");
       var btn = document.createElement("button"); btn.type = "button";
       btn.className = "list-item" + (isNow ? " is-now" : "") + (isDone ? " is-done" : "");
-      btn.innerHTML = (isDone ? "<span class='check'>✓</span>" : "<span class='num'>"+(i+1)+"</span>")
+      btn.innerHTML = "<span class='grip' aria-hidden='true'>⠿</span>"
+        + (isDone ? "<span class='check'>✓</span>" : "<span class='num'>"+(i+1)+"</span>")
         + "<span class='name'></span>" + (isNow ? "<span class='badge'>いまここ</span>" : "");
       btn.querySelector(".name").textContent = name;
-      btn.addEventListener("click", function(){ state.index = i; save(); showView("deck"); renderDeck(); });
+      btn.addEventListener("click", function(){
+        if(Date.now() - lastDragEnd < 250) return; // ドラッグ直後の誤クリックを無視
+        state.index = i; save(); showView("deck"); renderDeck();
+      });
+      attachDrag(btn, function(){ return i; }, ul, function(from, to){
+        reorderTasks(from, to); renderList(); renderDeck();
+      });
       li.appendChild(btn); ul.appendChild(li);
+    });
+  }
+
+  /* ===== 編集：ドラッグで並び替え ===== */
+  function renderReorderList(){
+    var ul = $("reorderList"); if(!ul) return;
+    ul.innerHTML = "";
+    var list = state.tasks;
+    if(list.length===0){
+      ul.innerHTML = "<li class='list-item'><span class='name'>タスクがありません</span></li>"; return;
+    }
+    list.forEach(function(name, i){
+      var li = document.createElement("li");
+      var row = document.createElement("div");
+      row.className = "list-item reorder-row";
+      row.innerHTML = "<span class='grip' aria-hidden='true'>⠿</span><span class='num'>"+(i+1)+"</span><span class='name'></span>";
+      row.querySelector(".name").textContent = name;
+      attachDrag(row, function(){ return i; }, ul, function(from, to){
+        reorderTasks(from, to);
+        $("allText").value = state.tasks.join("\n");
+        setStatus("並び替えを保存しました（全" + state.tasks.length + "件）");
+        renderReorderList(); renderDeck();
+      });
+      li.appendChild(row); ul.appendChild(li);
     });
   }
 
@@ -422,6 +537,7 @@
   function renderEdit(){
     $("allText").value = state.tasks.join("\n");
     $("saveStatus").textContent = "";
+    renderReorderList();
   }
   function setStatus(msg){ $("saveStatus").textContent = msg; }
 
@@ -433,6 +549,7 @@
     $("bulkText").value = "";
     $("allText").value = state.tasks.join("\n");
     setStatus(lines.length + "件を追加しました（全" + state.tasks.length + "件）");
+    renderReorderList();
     renderDeck();
   }
   function saveAll(){
@@ -441,6 +558,7 @@
     clamp(); save();
     $("allText").value = state.tasks.join("\n");
     setStatus("保存しました（全" + state.tasks.length + "件）。進捗はそのまま残っています");
+    renderReorderList();
     renderDeck();
   }
 
@@ -492,6 +610,7 @@
     state.tasks = []; state.index = 0; save();
     $("allText").value = ""; $("bulkText").value = "";
     setStatus("タスクを全部消しました");
+    renderReorderList();
     renderDeck();
   });
   $("exportBtn").addEventListener("click", function(){
@@ -514,6 +633,7 @@
           state.index = 0; save();
           $("allText").value = state.tasks.join("\n");
           setStatus("読み込みました（全" + state.tasks.length + "件）");
+          renderReorderList();
           renderDeck();
         }
       }catch(err){}
