@@ -197,6 +197,20 @@
     font-size:13px; font-weight:700; padding:6px 10px; text-decoration:underline; text-underline-offset:3px;
   }
   @media (max-height:640px){ .card{height:auto; flex:1 1 auto; max-height:none} }
+  /* ===== PC版：タスクは改行せず、カードが横に伸びる ===== */
+  @media (min-width:768px){
+    .deck{max-width:1600px; padding-left:32px; padding-right:32px}
+    .card{
+      width:max-content; min-width:min(560px,100%); max-width:100%;
+      padding-left:48px; padding-right:48px;
+    }
+    .card-task{
+      white-space:nowrap; word-break:normal; overflow-wrap:normal;
+      font-size:52px; padding:0;
+    }
+    .card-task.allow-wrap{white-space:normal; word-break:break-word}
+    .card-label,.card-hint{white-space:nowrap}
+  }
   @media (prefers-reduced-motion:reduce){ *{transition:none !important} }
 </style>
 </head>
@@ -376,6 +390,26 @@
   }
 
   /* ===== 紙芝居 ===== */
+  // PC版：カードが画面幅いっぱいまで伸びても収まらない超長文だけ、
+  // 文字を段階的に縮めて1行に収める。それでも無理な場合だけ改行を許可する
+  function fitCardTask(){
+    cardTask.classList.remove("allow-wrap");
+    cardTask.style.fontSize = "";
+    if(window.innerWidth < 768) return;
+    if(deckView.classList.contains("hidden")) return;
+    var size = 52;
+    // カード内側の横幅（左右パディング48pxずつ＋テキスト側の余白を差し引く）
+    var avail = cardBtn.clientWidth - 96;
+    if(avail <= 0) return;
+    while(cardTask.scrollWidth > avail && size > 24){
+      size -= 2;
+      cardTask.style.fontSize = size + "px";
+    }
+    if(cardTask.scrollWidth > avail){
+      cardTask.style.fontSize = "";
+      cardTask.classList.add("allow-wrap");
+    }
+  }
   function renderDeck(){
     clamp();
     var list = state.tasks, total = list.length, idx = state.index;
@@ -385,7 +419,7 @@
       cardTask.textContent = "編集から追加してね";
       cardHint.textContent = "タスクを編集へ ›";
       cardBtn.classList.remove("card-done");
-      dotsEl.innerHTML = ""; backBtn.disabled = true; return;
+      dotsEl.innerHTML = ""; backBtn.disabled = true; fitCardTask(); return;
     }
     var done = idx >= total;
     countLabel.textContent = Math.min(idx+1, total) + " / " + total;
@@ -407,6 +441,7 @@
     }
     dotsEl.innerHTML = html;
     backBtn.disabled = idx <= 0;
+    fitCardTask();
   }
   function advance(){
     if(state.tasks.length===0){ showView("edit"); return; }
@@ -595,6 +630,11 @@
   });
 
   /* ===== イベント ===== */
+  var fitTimer = null;
+  window.addEventListener("resize", function(){
+    if(fitTimer) clearTimeout(fitTimer);
+    fitTimer = setTimeout(function(){ if(view === "deck") fitCardTask(); }, 120);
+  });
   cardBtn.addEventListener("click", advance);
   backBtn.addEventListener("click", goBack);
   $("openListBtn").addEventListener("click", function(){ showView("list"); });
