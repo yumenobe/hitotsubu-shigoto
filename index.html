@@ -197,11 +197,11 @@
     font-size:13px; font-weight:700; padding:6px 10px; text-decoration:underline; text-underline-offset:3px;
   }
   @media (max-height:640px){ .card{height:auto; flex:1 1 auto; max-height:none} }
-  /* ===== PC版：タスクは改行せず、カードが横に伸びる ===== */
+  /* ===== PC版：カード幅は文字数にフィット（短いと小さく、長いと上限まで） ===== */
   @media (min-width:768px){
     .deck{max-width:1600px; padding-left:32px; padding-right:32px}
     .card{
-      width:max-content; min-width:min(560px,100%); max-width:100%;
+      width:max-content; min-width:min(340px,100%); max-width:min(880px,100%);
       padding-left:48px; padding-right:48px;
     }
     .card-task{
@@ -390,7 +390,7 @@
   }
 
   /* ===== 紙芝居 ===== */
-  // PC版：カードが画面幅いっぱいまで伸びても収まらない超長文だけ、
+  // PC版：カードが上限幅（880px）まで伸びても収まらない超長文だけ、
   // 文字を段階的に縮めて1行に収める。それでも無理な場合だけ改行を許可する
   function fitCardTask(){
     cardTask.classList.remove("allow-wrap");
