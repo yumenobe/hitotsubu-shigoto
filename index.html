@@ -137,14 +137,77 @@
   }
   .danger{color:var(--danger)}
   .divider{border:0; border-top:1.5px solid var(--line); margin:26px 0 0}
+
+  /* ===== ログイン ===== */
+  .login-wrap{
+    min-height:100dvh; display:flex; align-items:center; justify-content:center;
+    padding:24px 20px calc(24px + env(safe-area-inset-bottom));
+    max-width:560px; margin:0 auto; width:100%;
+  }
+  .login-card{
+    width:100%; background:var(--surface); border:1.5px solid var(--line);
+    border-radius:24px; padding:28px 24px 24px;
+    box-shadow:0 14px 28px rgba(20,35,45,.10);
+  }
+  .login-badge{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:13px; font-weight:800; letter-spacing:.08em; color:var(--ink-soft);
+  }
+  .login-badge .chip-dot{width:10px; height:10px; border-radius:999px; background:var(--card); flex:0 0 auto}
+  @media (prefers-color-scheme: dark){ .login-badge .chip-dot{background:var(--accent)} }
+  .login-title{font-size:26px; font-weight:800; margin:12px 0 6px; line-height:1.3}
+  .login-sub{font-size:14px; color:var(--ink-soft); margin:0 0 6px; line-height:1.7}
+  .login-field{margin-top:16px}
+  .login-field label{font-size:14px; font-weight:800; display:block; margin-bottom:8px}
+  .login-field input{
+    width:100%; min-height:52px; border:1.5px solid var(--line); border-radius:14px;
+    background:var(--field); color:var(--field-ink);
+    font:inherit; font-size:16px; padding:12px 14px;
+  }
+  .login-field input::placeholder{color:var(--ink-soft)}
+  .login-error{
+    display:none; margin-top:14px; font-size:14px; font-weight:700; line-height:1.6;
+    color:var(--danger); background:transparent;
+  }
+  .login-error.show{display:block}
+  .login-btn{
+    margin-top:22px; min-height:52px; border:0; border-radius:999px; width:100%;
+    background:var(--card); color:#fff; font-size:16px; font-weight:800; padding:12px 22px;
+  }
+  @media (prefers-color-scheme: dark){ .login-btn{background:var(--accent); color:var(--accent-ink)} }
+  .login-btn:disabled{opacity:.6}
+  .logout-row{display:flex; justify-content:center; margin-top:6px; flex:0 0 auto}
+  .logout-btn{
+    min-height:36px; border:0; background:transparent; color:var(--ink-soft);
+    font-size:13px; font-weight:700; padding:6px 10px; text-decoration:underline; text-underline-offset:3px;
+  }
   @media (max-height:640px){ .card{height:auto; flex:1 1 auto; max-height:none} }
   @media (prefers-reduced-motion:reduce){ *{transition:none !important} }
 </style>
 </head>
 <body>
 
+  <!-- ===== ログイン ===== -->
+  <main class="login-wrap" id="loginView" aria-label="ログイン">
+    <form class="login-card" id="loginForm" novalidate>
+      <span class="login-badge"><span class="chip-dot" aria-hidden="true"></span>しごと</span>
+      <h1 class="login-title">ログイン</h1>
+      <p class="login-sub">IDとパスワードを入力してください。</p>
+      <div class="login-field">
+        <label for="loginId">ID</label>
+        <input id="loginId" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="ID" />
+      </div>
+      <div class="login-field">
+        <label for="loginPw">パスワード</label>
+        <input id="loginPw" type="password" autocomplete="current-password" placeholder="パスワード" />
+      </div>
+      <p class="login-error" id="loginError" role="alert">IDまたはパスワードが違います。もう一度入力してください。</p>
+      <button class="login-btn" id="loginBtn" type="submit">ログインする</button>
+    </form>
+  </main>
+
   <!-- ===== 紙芝居 ===== -->
-  <main class="deck" id="deckView" aria-label="紙芝居">
+  <main class="deck hidden" id="deckView" aria-label="紙芝居">
     <div class="topbar">
       <div class="count" id="countLabel">0 / 0</div>
       <div class="top-actions">
@@ -171,6 +234,7 @@
       <button class="back-btn" id="backBtn" type="button">← もどる</button>
     </div>
     <div class="saved-note">この端末に自動保存中 ・ 日付が変わっても進捗はそのまま残ります</div>
+    <div class="logout-row"><button class="logout-btn" id="logoutBtn" type="button">ログアウト</button></div>
   </main>
 
   <!-- ===== 一覧 ===== -->
@@ -225,6 +289,25 @@
 (function(){
   "use strict";
   var KEY = "hitotsubu-shigoto-v1";
+  var AUTH_KEY = "hitotsubu-shigoto-auth-v1";
+  var EXPECTED_ID = "yume";
+  // パスワードは平文で置かず、SHA-256ハッシュで照合する
+  var EXPECTED_PW_HASH = "937e8d5fbb48bd4949536cd65b8d35c426b80d2f830c5c308e2cdec422ae2244";
+
+  function isAuthed(){ try{ return sessionStorage.getItem(AUTH_KEY) === "1"; }catch(e){ return false; } }
+  function setAuthed(){ try{ sessionStorage.setItem(AUTH_KEY, "1"); }catch(e){} }
+  function clearAuthed(){ try{ sessionStorage.removeItem(AUTH_KEY); }catch(e){} }
+  function sha256Hex(text){
+    if(!(window.crypto && crypto.subtle && crypto.subtle.digest)){
+      return Promise.reject(new Error("no subtle crypto"));
+    }
+    var buf = new TextEncoder().encode(text);
+    return crypto.subtle.digest("SHA-256", buf).then(function(hash){
+      var bytes = new Uint8Array(hash), hex = "";
+      for(var i=0;i<bytes.length;i++){ hex += ("0" + bytes[i].toString(16)).slice(-2); }
+      return hex;
+    });
+  }
 
   function defaultState(){ return { tasks: [], index: 0 }; }
   function load(){
@@ -247,12 +330,22 @@
   function clamp(){ if(state.index < 0) state.index = 0; if(state.index > state.tasks.length) state.index = state.tasks.length; }
 
   var $ = function(id){ return document.getElementById(id); };
-  var deckView=$("deckView"), listView=$("listView"), editView=$("editView");
+  var loginView=$("loginView"), deckView=$("deckView"), listView=$("listView"), editView=$("editView");
   var countLabel=$("countLabel"), cardBtn=$("cardBtn"), cardLabel=$("cardLabel"),
       cardTask=$("cardTask"), cardHint=$("cardHint"), dotsEl=$("dots"), backBtn=$("backBtn");
 
+  function showLogin(){
+    view = "login";
+    loginView.classList.remove("hidden");
+    deckView.classList.add("hidden");
+    listView.classList.add("hidden");
+    editView.classList.add("hidden");
+    window.scrollTo(0,0);
+  }
   function showView(v){
+    if(!isAuthed()){ showLogin(); return; }
     view = v;
+    loginView.classList.add("hidden");
     deckView.classList.toggle("hidden", v!=="deck");
     listView.classList.toggle("hidden", v!=="list");
     editView.classList.toggle("hidden", v!=="edit");
@@ -351,6 +444,38 @@
     renderDeck();
   }
 
+  /* ===== ログイン ===== */
+  $("loginForm").addEventListener("submit", function(e){
+    e.preventDefault();
+    var id = $("loginId").value.trim();
+    var pw = $("loginPw").value;
+    var err = $("loginError"), btn = $("loginBtn");
+    err.classList.remove("show");
+    if(id === "" || pw === ""){ err.classList.add("show"); return; }
+    btn.disabled = true;
+    sha256Hex(pw).then(function(hex){
+      btn.disabled = false;
+      if(id === EXPECTED_ID && hex === EXPECTED_PW_HASH){
+        setAuthed();
+        $("loginPw").value = "";
+        showView("deck"); renderDeck();
+      }else{
+        err.classList.add("show");
+        $("loginPw").value = "";
+        $("loginPw").focus();
+      }
+    }).catch(function(){
+      btn.disabled = false;
+      err.classList.add("show");
+    });
+  });
+  $("logoutBtn").addEventListener("click", function(){
+    clearAuthed();
+    $("loginPw").value = "";
+    $("loginError").classList.remove("show");
+    showLogin();
+  });
+
   /* ===== イベント ===== */
   cardBtn.addEventListener("click", advance);
   backBtn.addEventListener("click", goBack);
@@ -397,7 +522,8 @@
     reader.readAsText(file);
   });
 
-  renderDeck();
+  if(isAuthed()){ showView("deck"); renderDeck(); }
+  else { showLogin(); }
 })();
 </script>
 </body>
