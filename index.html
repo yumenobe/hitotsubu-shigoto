@@ -75,11 +75,8 @@
     background:var(--surface); border:1.5px solid var(--line); border-radius:14px;
     padding:3px 24px; min-width:172px; text-align:center; line-height:1.35; color:var(--ink);
   }
-  .timer-reset-btn{
-    min-width:44px; min-height:44px; border-radius:999px; border:1.5px solid var(--line);
-    background:var(--surface); color:var(--ink); font-size:19px; font-weight:800; line-height:1; padding:6px;
-  }
-  .timer-reset-btn:active{transform:scale(.95)}
+  .timer-display{cursor:pointer; font-family:inherit}
+  .timer-display:active{transform:scale(.98)}
   .timer-btn{
     min-height:48px; border-radius:999px; border:1.5px solid var(--line);
     background:var(--surface); color:var(--ink); font-size:16px; font-weight:800; padding:10px 28px; width:100%;
@@ -262,8 +259,7 @@
     <div class="timer-area" aria-label="タイマー">
      <div class="timer-stack">
       <div class="timer-top">
-        <div class="timer-display" id="timerDisplay" role="timer">0:00:00</div>
-        <button class="timer-reset-btn" id="timerResetBtn" type="button" aria-label="いまのタスクの計測時間をリセット" title="計測時間をリセット">↩︎</button>
+        <button class="timer-display" id="timerDisplay" type="button" role="timer" aria-label="いまのタスクの計測時間（タップでリセット）" title="タップで計測時間をリセット">0:00:00</button>
       </div>
       <button class="timer-btn" id="stopwatchBtn" type="button" aria-pressed="false">ストップウォッチ</button>
      </div>
@@ -742,7 +738,7 @@
     else { pauseRunning(); state.running = { name: name, since: Date.now() }; }
     save(); renderTimer();
   });
-  $("timerResetBtn").addEventListener("click", function(){
+  $("timerDisplay").addEventListener("click", function(){
     var name = currentTaskName(); if(!name) return;
     if(state.running && state.running.name === name) state.running = null;
     delete state.times[name];
