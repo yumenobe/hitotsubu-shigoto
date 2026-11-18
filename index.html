@@ -68,7 +68,9 @@
   .dot.now{width:30px; background:var(--dot-active); opacity:1}
   /* ===== タイマー（経過時間のみ） ===== */
   .timer-area{margin-top:14px; flex:0 0 auto; width:100%; display:flex; flex-direction:column; align-items:center; gap:8px}
-  .timer-top{display:flex; align-items:center; gap:8px}
+  .timer-top{display:grid; grid-template-columns:1fr auto 1fr; align-items:center; width:100%}
+  .timer-display{justify-self:center}
+  .timer-reset-btn{justify-self:start; margin-left:8px}
   .timer-display{
     font-size:30px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:.05em;
     background:var(--surface); border:1.5px solid var(--line); border-radius:14px;
@@ -263,7 +265,7 @@
         <div class="timer-display" id="timerDisplay" role="timer">0:00:00</div>
         <button class="timer-reset-btn" id="timerResetBtn" type="button" aria-label="いまのタスクの計測時間をリセット" title="計測時間をリセット">↩︎</button>
       </div>
-      <button class="timer-btn" id="stopwatchBtn" type="button" aria-pressed="false">経過時間計測</button>
+      <button class="timer-btn" id="stopwatchBtn" type="button" aria-pressed="false">ストップウォッチ</button>
     </div>
 
     <div class="back-row">
@@ -492,7 +494,6 @@
     var running = !!(name && state.running && state.running.name === name);
     btn.classList.toggle("is-running", running);
     btn.setAttribute("aria-pressed", running ? "true" : "false");
-    btn.textContent = running ? "計測中…（タップで一時停止）" : "経過時間計測";
   }
 
   /* ===== ドラッグ＆ドロップ並び替え ===== */
