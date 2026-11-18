@@ -66,6 +66,26 @@
   .dot{width:11px; height:11px; border-radius:999px; background:var(--dot); transition:all .2s}
   .dot.done{background:var(--dot-active); opacity:.55}
   .dot.now{width:30px; background:var(--dot-active); opacity:1}
+  /* ===== タイマー（経過時間のみ） ===== */
+  .timer-area{margin-top:14px; flex:0 0 auto; width:100%; display:flex; flex-direction:column; align-items:center; gap:8px}
+  .timer-top{display:flex; align-items:center; gap:8px}
+  .timer-display{
+    font-size:30px; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:.05em;
+    background:var(--surface); border:1.5px solid var(--line); border-radius:14px;
+    padding:3px 24px; min-width:172px; text-align:center; line-height:1.35; color:var(--ink);
+  }
+  .timer-reset-btn{
+    min-width:44px; min-height:44px; border-radius:999px; border:1.5px solid var(--line);
+    background:var(--surface); color:var(--ink); font-size:19px; font-weight:800; line-height:1; padding:6px;
+  }
+  .timer-reset-btn:active{transform:scale(.95)}
+  .timer-btn{
+    min-height:48px; border-radius:999px; border:1.5px solid var(--line);
+    background:var(--surface); color:var(--ink); font-size:16px; font-weight:800; padding:10px 28px;
+  }
+  .timer-btn:active{transform:scale(.98)}
+  .timer-btn.is-running{background:var(--card-done); color:#fff; border-color:var(--card-done)}
+  .list-item .time{font-size:13px; font-weight:700; color:var(--ink-soft); font-variant-numeric:tabular-nums; white-space:nowrap}
   .back-row{margin-top:20px; flex:0 0 auto}
   .back-btn{
     min-height:48px; border:0; background:transparent; color:var(--ink);
@@ -238,10 +258,18 @@
 
     <div class="dots" id="dots" aria-hidden="true"></div>
 
+    <div class="timer-area" aria-label="タイマー">
+      <div class="timer-top">
+        <div class="timer-display" id="timerDisplay" role="timer">0:00:00</div>
+        <button class="timer-reset-btn" id="timerResetBtn" type="button" aria-label="いまのタスクの計測時間をリセット" title="計測時間をリセット">↩︎</button>
+      </div>
+      <button class="timer-btn" id="stopwatchBtn" type="button" aria-pressed="false">経過時間計測</button>
+    </div>
+
     <div class="back-row">
       <button class="back-btn" id="backBtn" type="button">← もどる</button>
     </div>
-    <div class="saved-note">この端末に自動保存中 ・ 日付が変わっても進捗はそのまま残ります</div>
+    <div class="saved-note">この端末に自動保存中 ・ 日付が変わっても進捗はそのまま残ります ・ 計測時間はタスクごとに保存</div>
     <div class="logout-row"><button class="logout-btn" id="logoutBtn" type="button">ログアウト</button></div>
   </main>
 
@@ -323,7 +351,7 @@
     });
   }
 
-  function defaultState(){ return { tasks: [], index: 0 }; }
+  function defaultState(){ return { tasks: [], index: 0, times: {}, running: null }; }
   function load(){
     try{
       var raw = localStorage.getItem(KEY);
@@ -332,6 +360,9 @@
       if(!s || !Array.isArray(s.tasks)) return defaultState();
       s.tasks = s.tasks.map(String).filter(function(t){ return t.trim() !== ""; });
       if(typeof s.index !== "number" || s.index < 0) s.index = 0;
+      if(!s.times || typeof s.times !== "object" || Array.isArray(s.times)) s.times = {};
+      Object.keys(s.times).forEach(function(k){ if(typeof s.times[k] !== "number" || !(s.times[k] >= 0)) delete s.times[k]; });
+      if(!s.running || typeof s.running !== "object" || typeof s.running.name !== "string" || typeof s.running.since !== "number") s.running = null;
       if(s.index > s.tasks.length) s.index = s.tasks.length;
       return s;
     }catch(e){ return defaultState(); }
@@ -398,7 +429,7 @@
       cardTask.textContent = "編集から追加してね";
       cardHint.textContent = "タスクを編集へ ›";
       cardBtn.classList.remove("card-done");
-      dotsEl.innerHTML = ""; backBtn.disabled = true; fitCardTask(); return;
+      dotsEl.innerHTML = ""; backBtn.disabled = true; renderTimer(); fitCardTask(); return;
     }
     var done = idx >= total;
     countLabel.textContent = Math.min(idx+1, total) + " / " + total;
@@ -420,15 +451,49 @@
     }
     dotsEl.innerHTML = html;
     backBtn.disabled = idx <= 0;
+    renderTimer();
     fitCardTask();
   }
   function advance(){
     if(state.tasks.length===0){ showView("edit"); return; }
-    if(state.index >= state.tasks.length){ state.index = 0; }
+    pauseRunning();
+    if(state.index >= state.tasks.length){ state.index = 0; clearTimes(); }
     else { state.index += 1; }
     save(); renderDeck();
   }
-  function goBack(){ if(state.index > 0){ state.index -= 1; save(); renderDeck(); } }
+  function goBack(){ if(state.index > 0){ pauseRunning(); state.index -= 1; save(); renderDeck(); } }
+
+  /* ===== 経過時間計測（タスク名ごとに保持） ===== */
+  function fmtTime(ms){
+    var sec = Math.floor(ms / 1000);
+    var h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    return h + ":" + ("0" + m).slice(-2) + ":" + ("0" + s).slice(-2);
+  }
+  function currentTaskName(){
+    return state.index < state.tasks.length ? state.tasks[state.index] : null;
+  }
+  function elapsedOf(name){
+    var t = state.times[name] || 0;
+    if(state.running && state.running.name === name) t += Date.now() - state.running.since;
+    return t;
+  }
+  function pauseRunning(){
+    if(!state.running) return;
+    var n = state.running.name;
+    state.times[n] = (state.times[n] || 0) + Math.max(0, Date.now() - state.running.since);
+    state.running = null;
+  }
+  function clearTimes(){ state.times = {}; state.running = null; }
+  function renderTimer(){
+    var disp = $("timerDisplay"), btn = $("stopwatchBtn");
+    if(!disp || !btn) return;
+    var name = currentTaskName();
+    disp.textContent = name ? fmtTime(elapsedOf(name)) : "0:00:00";
+    var running = !!(name && state.running && state.running.name === name);
+    btn.classList.toggle("is-running", running);
+    btn.setAttribute("aria-pressed", running ? "true" : "false");
+    btn.textContent = running ? "計測中…（タップで一時停止）" : "経過時間計測";
+  }
 
   /* ===== ドラッグ＆ドロップ並び替え ===== */
   var dragFrom = null, dropTarget = null, lastDragEnd = 0;
@@ -509,9 +574,13 @@
         + (isDone ? "<span class='check'>✓</span>" : "<span class='num'>"+(i+1)+"</span>")
         + "<span class='name'></span>" + (isNow ? "<span class='badge'>いまここ</span>" : "");
       btn.querySelector(".name").textContent = name;
+      var timeSpan = document.createElement("span");
+      timeSpan.className = "time"; timeSpan.setAttribute("data-task-time", "");
+      timeSpan.textContent = fmtTime(elapsedOf(name));
+      btn.appendChild(timeSpan);
       btn.addEventListener("click", function(){
         if(Date.now() - lastDragEnd < 250) return; // ドラッグ直後の誤クリックを無視
-        state.index = i; save(); showView("deck"); renderDeck();
+        pauseRunning(); state.index = i; save(); showView("deck"); renderDeck();
       });
       attachDrag(btn, function(){ return i; }, ul, function(from, to){
         reorderTasks(from, to); renderList(); renderDeck();
@@ -568,6 +637,10 @@
   }
   function saveAll(){
     var lines = parseLines($("allText").value);
+    var kept = {};
+    lines.forEach(function(n){ if(state.times[n] != null) kept[n] = state.times[n]; });
+    state.times = kept;
+    if(state.running && lines.indexOf(state.running.name) === -1) state.running = null;
     state.tasks = lines;
     clamp(); save();
     $("allText").value = state.tasks.join("\n");
@@ -622,11 +695,11 @@
   $("backToDeckBtn").addEventListener("click", function(){ showView("deck"); renderDeck(); });
   $("editCloseBtn").addEventListener("click", function(){ showView("deck"); renderDeck(); });
   $("editDoneBtn").addEventListener("click", function(){ showView("deck"); renderDeck(); });
-  $("restartBtn").addEventListener("click", function(){ state.index = 0; save(); renderList(); renderDeck(); });
+  $("restartBtn").addEventListener("click", function(){ state.index = 0; clearTimes(); save(); renderList(); renderDeck(); });
   $("bulkAddBtn").addEventListener("click", bulkAdd);
   $("saveAllBtn").addEventListener("click", saveAll);
   $("clearBtn").addEventListener("click", function(){
-    state.tasks = []; state.index = 0; save();
+    state.tasks = []; state.index = 0; state.times = {}; state.running = null; save();
     $("allText").value = ""; $("bulkText").value = "";
     setStatus("タスクを全部消しました");
     renderReorderList();
@@ -649,7 +722,7 @@
         var t = parsed.tasks || parsed;
         if(Array.isArray(t)){
           state.tasks = t.map(String).filter(function(s){ return s.trim() !== ""; });
-          state.index = 0; save();
+          state.index = 0; state.times = {}; state.running = null; save();
           $("allText").value = state.tasks.join("\n");
           setStatus("読み込みました（全" + state.tasks.length + "件）");
           renderReorderList();
@@ -660,6 +733,29 @@
     };
     reader.readAsText(file);
   });
+
+  $("stopwatchBtn").addEventListener("click", function(){
+    var name = currentTaskName(); if(!name) return;
+    if(state.running && state.running.name === name){ pauseRunning(); }
+    else { pauseRunning(); state.running = { name: name, since: Date.now() }; }
+    save(); renderTimer();
+  });
+  $("timerResetBtn").addEventListener("click", function(){
+    var name = currentTaskName(); if(!name) return;
+    if(state.running && state.running.name === name) state.running = null;
+    delete state.times[name];
+    save(); renderTimer();
+  });
+  setInterval(function(){
+    if(!state.running) return;
+    if(view === "deck") renderTimer();
+    if(view === "list"){
+      var spans = document.querySelectorAll("#overviewList [data-task-time]");
+      for(var i=0;i<spans.length && i<state.tasks.length;i++){
+        spans[i].textContent = fmtTime(elapsedOf(state.tasks[i]));
+      }
+    }
+  }, 250);
 
   if(isAuthed()){ showView("deck"); renderDeck(); }
   else { showLogin(); }
